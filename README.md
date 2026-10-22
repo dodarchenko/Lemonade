@@ -76,59 +76,6 @@ When adding a test inside an existing `describe`, it's already in regression; ad
 
 ---
 
-## Coverage
-
-The price is always read from the **"Pay $X / month"** button, the one place on the page that shows a clean final price.
-
-### Coverage amounts – Personal Property, Personal Liability, Loss of use, Medical payments to others
-
-| Test | Suites |
-|---|---|
-| One step changes the price in the right direction; stepping back restores the original price | Personal Property: smoke, sanity, regression · others: sanity, regression |
-| The price rises with every step from the minimum to the maximum amount, and is back to the original once the amount is restored | regression |
-| Each coverage starts at the end of its range listed in the test data (Personal Property at its max, the rest at their min) | regression |
-
-### Extra coverage for valuable items – Jewelry, Bicycles, Cameras, Musical instruments, Fine art
-
-| Test | Suites |
-|---|---|
-| Adding raises the price by exactly the amount shown in the popup; the tile shows it; removing restores the price | Jewelry: smoke, sanity, regression · others: sanity, regression |
-| Surcharges of two items add up, and removing each one subtracts it | regression |
-
-### Policy add-ons
-
-| Add-on | Price | Suites |
-|---|---|---|
-| Water back-up | +$0.83/mo | smoke, sanity, regression |
-| Spouse | Free | smoke, sanity, regression |
-| Significant other | +$1.67/mo | sanity, regression |
-| Landlord property damage | +$0.50/mo | sanity, regression |
-| Equipment breakdown | +$3.00/mo | sanity, regression |
-| Interested party / Landlord | Free | sanity, regression |
-
-Each test turns the add-on on (filling its popup form where needed), checks the price rose by the listed amount – or didn't change for Free options – then turns it off and checks the price is back.
-
-### Deductible
-
-| Test | Suites |
-|---|---|
-| Default is $500; $250 costs more and $1,000 costs less | smoke, sanity, regression |
-| Price strictly decreases $250 → $500 → $1,000 → $2,500, and $500 matches the original quote | regression |
-
-### Combined changes
-
-| Test | Suites |
-|---|---|
-| A valuable item and a paid add-on surcharge stack | regression |
-
-### Not covered
-
-- Monthly / Annual billing switch
-- Whether the large header price matches the pay button
-- WebKit / Safari (see below)
-
----
-
 ## Known defects
 
 The suite found two pricing bugs. Their tests fail as normal until the bugs are fixed:
