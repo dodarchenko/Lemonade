@@ -1,0 +1,132 @@
+name: E2E – Quote pricing
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  # Nightly full regression catches changes in the deployed quote page even when this repo doesn't change.
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: >-
+          Environment to test. Its URL comes from the BASE_URL variable of the matching
+          GitHub Environment (Settings → Environments); production falls back to the public mock.
+        type: choice
+        options: [production, staging, dev]
+        default: production
+      base_url:
+        description: 'Optional URL override (wins over the environment URL)'
+        type: string
+        required: false
+      tag:
+        description: 'Test suite to run'
+        type: choice
+        options: [smoke, sanity, regression]
+        default: smoke
+      browser:
+        description: 'Browser(s) to run on'
+        type: choice
+        options: [all, chromium, firefox]
+        default: all
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.environment || 'auto' }}
+  # Only superseded PR runs are cancelled; runs on main (push, nightly) always finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Turns the trigger + inputs into concrete settings, so the test job has a single code path.
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.resolve.outputs.environment }}
+      grep: ${{ steps.resolve.outputs.grep }}
+      suite: ${{ steps.resolve.outputs.suite }}
+      browsers: ${{ steps.resolve.outputs.browsers }}
+    steps:
+      - id: resolve
+        env:
+          EVENT: ${{ github.event_name }}
+          IN_ENV: ${{ inputs.environment }}
+          IN_TAG: ${{ inputs.tag }}
+          IN_BROWSER: ${{ inputs.browser }}
+        run: |
+          case "$EVENT" in
+            workflow_dispatch) tag="$IN_TAG" ;;
+            pull_request)      tag="sanity" ;;      # quick feedback on PRs
+            *)                 tag="regression" ;;  # push to main + nightly
+          esac
+          # Tests list every suite they belong to, so the suite name is the grep.
+          grep="@$tag"
+
+          case "${IN_BROWSER:-all}" in
+            all) browsers='["chromium","firefox"]' ;;
+            *)   browsers="[\"$IN_BROWSER\"]" ;;
+          esac
+
+          {
+            echo "environment=${IN_ENV:-production}"
+            echo "grep=$grep"
+            echo "suite=$tag"
+            echo "browsers=$browsers"
+          } >> "$GITHUB_OUTPUT"
+          echo "### E2E: env=${IN_ENV:-production}, suite=$tag, browsers=$browsers" >> "$GITHUB_STEP_SUMMARY"
+
+  e2e:
+    name: ${{ matrix.browser }} · ${{ needs.setup.outputs.suite }} · ${{ needs.setup.outputs.environment }}
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Binds environment-scoped vars/secrets (e.g. vars.BASE_URL) and protection rules such as required reviewers.
+    environment: ${{ needs.setup.outputs.environment }}
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: ${{ fromJSON(needs.setup.outputs.browsers) }}
+    env:
+      CI: true
+      BASE_URL: ${{ inputs.base_url || vars.BASE_URL || 'https://lemonade-hq.github.io' }}
+      # Optional per-environment quote; QuotePage falls back to the mock's quote when empty.
+      QUOTE_PATH: ${{ vars.QUOTE_PATH }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run typecheck
+
+      # Not cached on purpose: restoring browsers saves little, since system deps must be installed anyway.
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Run tests
+        env:
+          GREP: ${{ needs.setup.outputs.grep }}
+        run: |
+          echo "Testing $BASE_URL"
+          npx playwright test --project=${{ matrix.browser }} --grep "$GREP"
+
+      - name: Upload HTML report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.browser }}
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Upload traces, screenshots and videos
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.browser }}
+          path: test-results/
+          retention-days: 7
